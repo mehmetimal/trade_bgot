@@ -12,7 +12,7 @@ strategy_runner = None
 class StrategyConfig(BaseModel):
     strategy: str = "combined"
     symbols: Optional[List[str]] = None
-    update_interval: int = 10
+    update_interval: int = 300  # 5 dakika - pozisyonlar daha uzun süre açık kalır
     market: str = "turkish"
 
 

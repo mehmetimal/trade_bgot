@@ -85,7 +85,7 @@ app.add_middleware(
 # Request logging middleware
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
-    """Log all requests"""
+    """Log all requests with audit trail"""
     start_time = time.time()
 
     response = await call_next(request)
@@ -96,12 +96,27 @@ async def log_requests(request: Request, call_next):
         f"completed in {process_time:.3f}s with status {response.status_code}"
     )
 
+    # Audit logging
+    try:
+        from utils.audit_logger import get_audit_logger
+        audit_logger = get_audit_logger()
+        audit_logger.log_api_request(
+            method=request.method,
+            endpoint=str(request.url.path),
+            status_code=response.status_code,
+            response_time=process_time,
+            client_ip=request.client.host if request.client else "unknown",
+            metadata={"user_agent": request.headers.get("user-agent", "unknown")}
+        )
+    except Exception as e:
+        logger.warning(f"Failed to audit log request: {e}")
+
     response.headers["X-Process-Time"] = str(process_time)
     return response
 
 
 rate_store = {}
-RATE_LIMIT = int(os.environ.get("RATE_LIMIT", "1000"))  # Increased for development
+RATE_LIMIT = int(os.environ.get("RATE_LIMIT", "10000"))  # Much higher for development
 WINDOW_SEC = int(os.environ.get("WINDOW_SEC", "60"))
 
 @app.middleware("http")
@@ -211,17 +226,68 @@ app.include_router(
     tags=["Market Data"]
 )
 
+@app.websocket("/ws/portfolio")
+async def portfolio_websocket(websocket: WebSocket):
+    """Real-time portfolio updates via WebSocket"""
+    await websocket.accept()
+    logger.info("WebSocket client connected for portfolio updates")
+
+    try:
+        from api.routes.paper_trading import engine
+
+        while True:
+            # Send portfolio updates
+            portfolio = engine.get_portfolio_summary()
+            positions = engine.get_positions()
+
+            await websocket.send_json({
+                "type": "portfolio_update",
+                "portfolio": portfolio,
+                "positions": positions,
+                "timestamp": time.time()
+            })
+
+            await asyncio.sleep(5)  # Update every 5 seconds
+    except Exception as e:
+        logger.error(f"WebSocket error: {e}")
+    finally:
+        logger.info("WebSocket client disconnected")
+        await websocket.close()
+
+
 @app.websocket("/ws/market-data")
 async def market_data_websocket(websocket: WebSocket):
+    """Real-time market data via WebSocket"""
     await websocket.accept()
     collector = YahooFinanceCollector()
+    logger.info("WebSocket client connected for market data")
+
     try:
+        # Get symbols from query params or use defaults
+        from data.turkish_symbols import get_all_symbols
+        symbols = get_all_symbols()[:10]  # Limit to 10 symbols
+
         while True:
-            info = collector.fetch_realtime_price("AAPL")
-            last = info.get("price") if isinstance(info, dict) else info
-            await websocket.send_json({"symbol": "AAPL", "last": last})
-            await asyncio.sleep(2)
-    except Exception:
+            market_data = []
+            for symbol in symbols:
+                try:
+                    info = collector.fetch_realtime_price(symbol)
+                    if info:
+                        market_data.append(info)
+                except Exception as e:
+                    logger.warning(f"Failed to fetch {symbol}: {e}")
+
+            await websocket.send_json({
+                "type": "market_data",
+                "data": market_data,
+                "timestamp": time.time()
+            })
+
+            await asyncio.sleep(10)  # Update every 10 seconds
+    except Exception as e:
+        logger.error(f"WebSocket error: {e}")
+    finally:
+        logger.info("WebSocket client disconnected")
         await websocket.close()
 
 

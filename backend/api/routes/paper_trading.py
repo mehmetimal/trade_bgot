@@ -1,9 +1,18 @@
 from fastapi import APIRouter, HTTPException
 from typing import Optional
+from pydantic import BaseModel
 from paper_trading.engine import PaperTradingEngine
 
 router = APIRouter()
 engine = PaperTradingEngine(initial_capital=10000)
+
+
+class OrderRequest(BaseModel):
+    symbol: str
+    side: str  # "buy" or "sell"
+    quantity: float
+    order_type: str = "market"  # "market", "limit"
+    price: Optional[float] = None
 
 @router.get("/portfolio")
 async def get_portfolio():
@@ -55,3 +64,26 @@ async def get_trade_markers(symbol: Optional[str] = None):
             "price": td.get("exit_price")
         })
     return markers
+
+
+@router.post("/orders")
+async def create_order(request: OrderRequest):
+    """
+    Create a new order (for testing/manual trading)
+    """
+    try:
+        order = engine.place_order(
+            symbol=request.symbol,
+            side=request.side,
+            quantity=request.quantity,
+            order_type=request.order_type,
+            price=request.price
+        )
+
+        return {
+            "status": "success",
+            "order": order.to_dict(),
+            "message": f"Order placed: {request.side} {request.quantity} {request.symbol}"
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))

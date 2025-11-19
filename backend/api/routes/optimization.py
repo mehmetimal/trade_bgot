@@ -20,7 +20,7 @@ optimization_status = {
 
 class OptimizationRequest(BaseModel):
     symbols: List[str] = ["AAPL", "TSLA", "GOOGL"]
-    strategy: str = "ma_crossover"  # or "rsi"
+    strategy: str = "combined"  # or "ma_crossover", "rsi"
     optimization_metric: str = "sharpe_ratio"  # or "total_return", "calmar_ratio"
     optimization_period: str = "1y"  # Historical data period
 
@@ -101,6 +101,8 @@ async def _run_optimization_background(
                     results = optimizer.optimize_ma_crossover(symbol, top_n=1)
                 elif strategy == "rsi":
                     results = optimizer.optimize_rsi_strategy(symbol, top_n=1)
+                elif strategy == "combined":
+                    results = optimizer.optimize_combined_strategy(symbol, top_n=1)
                 else:
                     logger.error(f"Unknown strategy: {strategy}")
                     continue

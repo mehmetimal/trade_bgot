@@ -232,9 +232,9 @@ class YahooFinanceCollector:
         if not os.path.exists(cache_file):
             return None
 
-        # Cache yaşını kontrol et (24 saatten eskiyse yenile)
+        # Cache yaşını kontrol et (7 günden eskiyse yenile)
         file_age = time.time() - os.path.getmtime(cache_file)
-        if file_age > 86400:  # 24 hours
+        if file_age > 604800:  # 7 days
             logger.debug(f"Cache expired for {symbol}")
             return None
 

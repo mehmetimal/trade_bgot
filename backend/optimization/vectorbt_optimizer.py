@@ -294,6 +294,138 @@ class VectorbtOptimizer:
 
         return top_results
 
+    def optimize_combined_strategy(
+        self,
+        symbol: str,
+        top_n: int = 5
+    ) -> List[Dict]:
+        """
+        Optimize Combined Strategy using vectorbt
+        Tests MA, RSI, Bollinger, MACD combinations
+
+        This is the MOST POWERFUL optimizer - tests ALL rule combinations!
+        """
+        logger.info(f"🔍 Optimizing Combined Strategy for {symbol}...")
+
+        # Fetch data
+        data = self.collector.fetch_historical_data(
+            symbol=symbol,
+            period=self.optimization_period,
+            interval="1d"
+        )
+
+        if data is None or len(data) < 200:
+            logger.error(f"Insufficient data for {symbol}")
+            return []
+
+        close = data['close']
+
+        # Parameter ranges (smaller for faster testing)
+        ma_fast_range = range(5, 21, 5)  # 5, 10, 15, 20
+        ma_slow_range = range(30, 51, 10)  # 30, 40, 50
+        rsi_period_range = range(10, 21, 5)  # 10, 15, 20
+        rsi_oversold_range = range(25, 36, 5)  # 25, 30, 35
+        rsi_overbought_range = range(65, 76, 5)  # 65, 70, 75
+
+        results = []
+
+        # Test combinations
+        total_combos = len(ma_fast_range) * len(ma_slow_range) * len(rsi_period_range) * len(rsi_oversold_range) * len(rsi_overbought_range)
+        logger.info(f"Testing {total_combos} parameter combinations...")
+
+        for ma_fast in ma_fast_range:
+            for ma_slow in ma_slow_range:
+                if ma_fast >= ma_slow:  # Invalid
+                    continue
+
+                for rsi_period in rsi_period_range:
+                    for rsi_oversold in rsi_oversold_range:
+                        for rsi_overbought in rsi_overbought_range:
+                            if rsi_oversold >= rsi_overbought:  # Invalid
+                                continue
+
+                            try:
+                                # Calculate indicators
+                                fast_ma = vbt.MA.run(close, window=ma_fast).ma
+                                slow_ma = vbt.MA.run(close, window=ma_slow).ma
+                                rsi_vals = vbt.RSI.run(close, window=rsi_period).rsi
+
+                                # Generate signals (simplified combined strategy)
+                                entries = (fast_ma > slow_ma) & (rsi_vals < rsi_oversold)
+                                exits = (fast_ma < slow_ma) | (rsi_vals > rsi_overbought)
+
+                                # Backtest
+                                portfolio = vbt.Portfolio.from_signals(
+                                    close,
+                                    entries,
+                                    exits,
+                                    init_cash=10000,
+                                    fees=0.001,
+                                    slippage=0.0005
+                                )
+
+                                result = {
+                                    'symbol': symbol,
+                                    'strategy': 'combined',
+                                    'ma_fast': ma_fast,
+                                    'ma_slow': ma_slow,
+                                    'rsi_period': rsi_period,
+                                    'rsi_oversold': rsi_oversold,
+                                    'rsi_overbought': rsi_overbought,
+                                    'bollinger_period': 20,  # Default
+                                    'bollinger_std': 2.0,  # Default
+                                    'macd_fast': 12,  # Default
+                                    'macd_slow': 26,  # Default
+                                    'macd_signal': 9,  # Default
+                                    'stop_loss_pct': 0.02,
+                                    'take_profit_pct': 0.04,
+                                    'sharpe_ratio': portfolio.sharpe_ratio(),
+                                    'total_return': portfolio.total_return(),
+                                    'max_drawdown': portfolio.max_drawdown(),
+                                    'win_rate': portfolio.win_rate(),
+                                }
+                                results.append(result)
+
+                            except:
+                                continue
+
+        # Sort by metric
+        results = sorted(
+            results,
+            key=lambda x: x.get(self.optimization_metric, 0),
+            reverse=True
+        )
+
+        top_results = results[:top_n]
+
+        if top_results:
+            best = top_results[0]
+            logger.info(
+                f"✅ Best Combined Strategy for {symbol}: "
+                f"MA={best['ma_fast']}/{best['ma_slow']}, "
+                f"RSI={best['rsi_period']}({best['rsi_oversold']}/{best['rsi_overbought']}), "
+                f"Sharpe={best['sharpe_ratio']:.2f}, "
+                f"Return={best['total_return']*100:.1f}%"
+            )
+
+            # Store best parameters
+            self.best_params[symbol] = {
+                'ma_fast': best['ma_fast'],
+                'ma_slow': best['ma_slow'],
+                'rsi_period': best['rsi_period'],
+                'rsi_oversold': best['rsi_oversold'],
+                'rsi_overbought': best['rsi_overbought'],
+                'bollinger_period': best['bollinger_period'],
+                'bollinger_std': best['bollinger_std'],
+                'macd_fast': best['macd_fast'],
+                'macd_slow': best['macd_slow'],
+                'macd_signal': best['macd_signal'],
+                'stop_loss_pct': best['stop_loss_pct'],
+                'take_profit_pct': best['take_profit_pct']
+            }
+
+        return top_results
+
     def optimize_all_symbols(
         self,
         strategy: str = "ma_crossover"
@@ -302,7 +434,7 @@ class VectorbtOptimizer:
         Optimize parameters for ALL symbols automatically
 
         Args:
-            strategy: Strategy to optimize (ma_crossover, rsi)
+            strategy: Strategy to optimize (ma_crossover, rsi, combined)
 
         Returns:
             Dict of best parameters per symbol
@@ -317,6 +449,8 @@ class VectorbtOptimizer:
                     results = self.optimize_ma_crossover(symbol, top_n=1)
                 elif strategy == "rsi":
                     results = self.optimize_rsi_strategy(symbol, top_n=1)
+                elif strategy == "combined":
+                    results = self.optimize_combined_strategy(symbol, top_n=1)
                 else:
                     logger.warning(f"Unknown strategy: {strategy}")
                     continue

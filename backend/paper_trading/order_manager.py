@@ -135,6 +135,24 @@ class OrderManager:
 
         logger.info(f"Order created: {order.order_id} - {side.value} {quantity} {symbol}")
 
+        # Audit logging
+        try:
+            from utils.audit_logger import get_audit_logger
+            audit_logger = get_audit_logger()
+            audit_logger.log_trade(
+                action=f"ORDER_CREATED_{side.value.upper()}",
+                symbol=symbol,
+                quantity=quantity,
+                price=price or 0,
+                order_type=order_type.value,
+                metadata={
+                    "order_id": order.order_id,
+                    "stop_price": stop_price
+                }
+            )
+        except Exception as e:
+            logger.warning(f"Failed to audit log order creation: {e}")
+
         return order
 
     def process_market_data(
@@ -248,6 +266,27 @@ class OrderManager:
             f"Order filled: {order.order_id} - "
             f"{order.side.value} {order.quantity} {order.symbol} @ ${actual_fill_price:.2f}"
         )
+
+        # Audit logging
+        try:
+            from utils.audit_logger import get_audit_logger
+            audit_logger = get_audit_logger()
+            audit_logger.log_trade(
+                action=f"ORDER_FILLED_{order.side.value.upper()}",
+                symbol=order.symbol,
+                quantity=order.quantity,
+                price=actual_fill_price,
+                order_type=order.order_type.value,
+                metadata={
+                    "order_id": order.order_id,
+                    "commission": commission,
+                    "slippage": order.slippage,
+                    "notional_value": notional_value,
+                    "fill_timestamp": timestamp.isoformat()
+                }
+            )
+        except Exception as e:
+            logger.warning(f"Failed to audit log order execution: {e}")
 
         return order
 
